@@ -151,6 +151,35 @@ static AuthorizationFlags authFlags;
     return path;
 }
 
+#define kProxyAddress @"address"
+#define kProxyUser @"username"
+#define kProxyPasswd @"passwd"
+
+// 解析 [user:passwd@]proxy 这样的地址
+- (NSDictionary *)parseAddress:(NSString *)address {
+    NSDictionary *noPasswd = [NSDictionary dictionaryWithObjectsAndKeys:
+                             address, kProxyAddress,
+                             @"", kProxyUser,
+                             @"", kProxyPasswd,
+                             nil];
+
+    NSArray *arr = [address componentsSeparatedByString:@"@"];
+    if (arr.count != 2) {
+        return noPasswd;
+    }
+    NSArray *userPasswd = [[arr objectAtIndex:0] componentsSeparatedByString:@":"];
+    if (userPasswd.count != 2) {
+        return noPasswd;
+    }
+    NSDictionary *r = [NSDictionary dictionaryWithObjectsAndKeys:
+            [arr objectAtIndex:1], kProxyAddress,
+            [userPasswd objectAtIndex:0], kProxyUser,
+            [userPasswd objectAtIndex:1], kProxyPasswd,
+            nil];
+//    NSLog(@"%@", r);
+    return r;
+}
+
 
 //! 修改代理设置的字典
 - (void)modifyPrefProxiesDictionary:(NSMutableDictionary *)proxies withProxyEnabled:(BOOL)enabled {
@@ -161,8 +190,11 @@ static AuthorizationFlags authFlags;
     [proxies setObject:[NSNumber numberWithInt:0] forKey:(NSString *)kCFNetworkProxiesSOCKSEnable];
     
     if (enabled) {
+        NSDictionary *proxyDict = [self parseAddress:self.selectedProxy.address];
+        NSString *proxyAddress = [proxyDict objectForKey:kProxyAddress];
+        NSString *proxyUser = [proxyDict objectForKey:kProxyUser];
+        NSString *proxyPasswd = [proxyDict objectForKey:kProxyPasswd];
         NSInteger proxyPort = [self.selectedProxy.port intValue];
-        NSString *proxyAddress = self.selectedProxy.address;
         NSString *proxyType = self.selectedProxy.type;
         
         if (proxyType == nil || [proxyType isEqualToString:kProxyPAC]) {
@@ -184,6 +216,15 @@ static AuthorizationFlags authFlags;
             [proxies setObject:[NSNumber numberWithInteger:proxyPort] forKey:(NSString *)kCFNetworkProxiesSOCKSPort];
             [proxies setObject:proxyAddress forKey:(NSString *)kCFNetworkProxiesSOCKSProxy];
             [proxies setObject:[NSNumber numberWithInt:1] forKey:(NSString *)kCFNetworkProxiesSOCKSEnable];
+        }
+
+        // 设置用户名密码
+        if (proxyUser.length > 0 && ([proxyType isEqualToString:kProxySOCKS] ||
+                                     [proxyType isEqualToString:kProxyHTTP])) {
+            NSLog(@"set username: %@, passwd %@\n", proxyUser, proxyPasswd);
+            // 下列代码对设置用户名密码无效
+            [proxies setObject:proxyUser forKey:(NSString *)kCFProxyUsernameKey];
+            [proxies setObject:proxyPasswd forKey:(NSString *)kCFProxyPasswordKey];
         }
     }
 }
@@ -263,7 +304,7 @@ static AuthorizationFlags authFlags;
     if (_managedObjectModel) {
         return _managedObjectModel;
     }
-	
+
     NSURL *modelURL = [[NSBundle mainBundle] URLForResource:@"ProxyMenu" withExtension:@"momd"];
     _managedObjectModel = [[NSManagedObjectModel alloc] initWithContentsOfURL:modelURL];
     return _managedObjectModel;
